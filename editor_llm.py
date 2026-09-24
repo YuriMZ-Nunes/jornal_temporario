@@ -22,20 +22,6 @@ FILIPE_TECH_SECTION = "tecnologia"
 FILIPE_TECH_STORIES = 4
 FILIPE_TECH_CANDIDATES = 10
 
-MAX_TEXT_PER_CANDIDATE = 550
-
-# Seções que existem no arquivo de candidatos, mas não entram na capa principal.
-#
-# - BIG STORY: poderá virar uma página própria no HTML/PDF futuramente.
-# - ESPECIAL ELEIÇÕES 2026: costuma trazer manchetes sem título individual.
-IGNORED_THE_NEWS_SECTIONS = {
-    "big story",
-    "especial eleicoes 2026",
-    "giveaway do denius",
-    "recado do time"
-}
-
-
 STORIES_SCHEMA = {
     "type": "object",
     "properties": {
@@ -141,17 +127,18 @@ def is_the_news(candidate):
         == THE_NEWS_SOURCE
     )
 
-
-def is_ignored_the_news_candidate(candidate):
+def is_single_word_the_news_section(candidate):
     """
-    Retorna True para seções que não entram ainda na edição principal.
+    Retorna True apenas para seções do The News com uma única palavra.
+
+    A normalização remove acentos, emojis e espaços duplicados antes
+    da contagem.
     """
     section = normalize_label(
         candidate.get("section", "")
     )
 
-    return section in IGNORED_THE_NEWS_SECTIONS
-
+    return len(section.split()) == 1
 
 def prepare_filipe_candidates(data):
     """
@@ -177,9 +164,7 @@ def prepare_filipe_candidates(data):
                 "source": candidate.get("source", ""),
                 "section": candidate.get("section", ""),
                 "title": candidate.get("title", ""),
-                "text": candidate.get("text", "")[
-                    :MAX_TEXT_PER_CANDIDATE
-                ],
+                "text": candidate.get("text", ""),
             }
         )
 
@@ -205,9 +190,9 @@ def get_the_news_candidates(data):
         if not is_the_news(candidate):
             continue
 
-        if is_ignored_the_news_candidate(candidate):
+        if not is_single_word_the_news_section(candidate):
             print(
-                "Ignorada: seção configurada para fora da capa: "
+                "Ignorada: seção do The News não possui uma única palavra: "
                 f"{candidate.get('section', '')} "
                 f"({candidate.get('id', '')})"
             )

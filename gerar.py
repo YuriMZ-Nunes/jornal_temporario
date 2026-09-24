@@ -10,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 from zoneinfo import ZoneInfo
 import unicodedata
+from PIL import Image, ImageOps
 
 from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
@@ -45,8 +46,8 @@ MAX_TASKS = 6
 MAX_WEEK_EVENTS = 14
 MAX_COVER_SUMMARY = 520
 
-COVER_IMAGE_HEIGHT = 4.6 * cm
-COVER_IMAGE_GAP = 0.18 * cm
+COVER_IMAGE_HEIGHT = 9.0 * cm
+COVER_IMAGE_GAP = 0.28 * cm
 
 ARTICLE_IMAGE_MIN_WIDTH = 4.4 * cm
 ARTICLE_IMAGE_MAX_WIDTH = 6.8 * cm
@@ -755,6 +756,67 @@ def draw_story_image(
 
         return x, y_top, 0, 0, False
 
+def draw_cover_image(
+    c,
+    image_path,
+    x,
+    y_top,
+    width,
+    height,
+    centering=(0.5, 0.5),
+):
+    """
+    Desenha uma imagem em moldura fixa, com crop proporcional.
+
+    A imagem preenche toda a moldura sem distorção. O crop é central
+    por padrão e pode ser ajustado com `centering`.
+    """
+    if not image_path:
+        return x, y_top, 0, 0, False
+
+    try:
+        # Uma resolução maior que a moldura do PDF mantém boa qualidade
+        # visual sem armazenar arquivos temporários no projeto.
+        target_width = max(1, int(width * 4))
+        target_height = max(1, int(height * 4))
+
+        with Image.open(image_path) as original:
+            image = original.convert("RGB")
+
+            fitted = ImageOps.fit(
+                image,
+                (target_width, target_height),
+                method=Image.Resampling.LANCZOS,
+                centering=centering,
+            )
+
+            output = BytesIO()
+            fitted.save(
+                output,
+                format="JPEG",
+                quality=92,
+                optimize=True,
+            )
+            output.seek(0)
+
+        c.drawImage(
+            ImageReader(output),
+            x,
+            y_top - height,
+            width=width,
+            height=height,
+            mask="auto",
+        )
+
+        return x, y_top - height, width, height, True
+
+    except Exception as error:
+        print(
+            "Aviso: não foi possível aplicar crop "
+            f"na imagem de capa {image_path}: {error}"
+        )
+        return x, y_top, 0, 0, False
+
 
 def draw_sudoku(c, puzzle, x, y_top, size):
     cell = size / 9
@@ -1136,7 +1198,7 @@ def draw_nasa_cover(
     )
     explanation = clean_text(
         apod.get("explanation", "")
-    )[:MAX_COVER_SUMMARY]
+    )
     credit = clean_text(
         apod.get("copyright") or "NASA"
     )
@@ -1165,7 +1227,7 @@ def draw_nasa_cover(
         _image_width,
         _image_height,
         image_drawn,
-    ) = draw_story_image(
+    ) = draw_cover_image(
         c,
         image_path,
         x,
@@ -1178,6 +1240,16 @@ def draw_nasa_cover(
         raise RuntimeError(
             "Não foi possível desenhar a imagem APOD na capa."
         )
+
+    c.setFillColor(MUTED_INK)
+    c.setFont("Times-Italic", 7.5)
+    c.drawString(
+        x,
+        image_y - 0.23 * cm,
+        f"Crédito: {credit}",
+    )
+
+    y = image_y - 0.52 * cm
 
     y = image_y - COVER_IMAGE_GAP
 
@@ -1199,14 +1271,6 @@ def draw_nasa_cover(
         y,
         full_width,
         styles["cover_body"],
-    )
-
-    c.setFillColor(MUTED_INK)
-    c.setFont("Times-Italic", 7.5)
-    c.drawString(
-        x,
-        y - 0.16 * cm,
-        f"Crédito: {credit}",
     )
 
     return y - 0.45 * cm
@@ -2349,15 +2413,15 @@ def build_pdf(edition):
         "cover_headline": ParagraphStyle(
             "CoverHeadline",
             fontName="Times-Bold",
-            fontSize=21,
-            leading=23.5,
+            fontSize=24,
+            leading=27,
             textColor=INK,
         ),
         "cover_body": ParagraphStyle(
             "CoverBody",
             fontName="Times-Roman",
-            fontSize=10,
-            leading=13,
+            fontSize=9.6,
+            leading=12.5,
             textColor=INK,
         ),
         "article_headline": ParagraphStyle(
