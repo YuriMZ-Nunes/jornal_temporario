@@ -59,6 +59,7 @@ BODY_CONTINUATION_ADJUSTMENT = 0.08 * cm
 SIDEBAR_TOP_HEIGHT = 5.8 * cm
 SIDEBAR_PADDING_BOTTOM = 0.18 * cm
 BODY_CONTINUATION_ADJUSTMENT = 0.10 * cm
+APOD_OUTPUT_DIR = Path("output/apod")
 
 ARTICLE_SIDE_LINES = 12
 ARTICLE_BODY_LEADING = 12
@@ -269,6 +270,46 @@ def normalize_section_name(section):
         .replace("ú", "u")
         .replace("ç", "c")
     )
+
+def get_today_apod(today):
+    """
+    Lê os metadados e valida a imagem da NASA APOD baixada para hoje.
+
+    O arquivo é produzido por nasa_apod.py.
+    """
+    metadata_path = (
+        APOD_OUTPUT_DIR
+        / f"apod-{today.isoformat()}.json"
+    )
+
+    if not metadata_path.exists():
+        raise FileNotFoundError(
+            "Não encontrei a APOD de hoje. "
+            "Execute `python nasa_apod.py` antes de gerar o PDF. "
+            f"Arquivo esperado: {metadata_path}"
+        )
+
+    try:
+        apod = json.loads(
+            metadata_path.read_text(encoding="utf-8")
+        )
+    except json.JSONDecodeError as error:
+        raise RuntimeError(
+            f"Os metadados da APOD são inválidos: {metadata_path}"
+        ) from error
+
+    image_path = Path(
+        str(apod.get("local_image_path", "")).strip()
+    )
+
+    if not image_path.is_file():
+        raise FileNotFoundError(
+            "Não encontrei a imagem APOD indicada nos metadados: "
+            f"{image_path}"
+        )
+
+    apod["local_image_path"] = image_path
+    return apod
 
 
 def is_the_news_story(story):
@@ -1077,6 +1118,100 @@ def draw_cover_story(
     return y - 0.20 * cm
 
 
+def draw_nasa_cover(
+    c,
+    apod,
+    x,
+    y_top,
+    cover_width,
+    full_width,
+    styles,
+):
+    """
+    Desenha a capa com a Astronomy Picture of the Day da NASA.
+    """
+    apod_date = clean_text(apod.get("date", ""))
+    title = clean_text(
+        apod.get("title", "Astronomy Picture of the Day")
+    )
+    explanation = clean_text(
+        apod.get("explanation", "")
+    )[:MAX_COVER_SUMMARY]
+    credit = clean_text(
+        apod.get("copyright") or "NASA"
+    )
+    image_path = apod["local_image_path"]
+
+    c.setFillColor(MUTED_INK)
+    c.setFont("Times-Bold", 8)
+    c.drawString(
+        x,
+        y_top,
+        "ASTRONOMY PICTURE OF THE DAY",
+    )
+
+    c.setFont("Times-Roman", 7.5)
+    c.drawRightString(
+        x + cover_width,
+        y_top,
+        f"NASA • {apod_date}",
+    )
+
+    y = y_top - 0.30 * cm
+
+    (
+        _image_x,
+        image_y,
+        _image_width,
+        _image_height,
+        image_drawn,
+    ) = draw_story_image(
+        c,
+        image_path,
+        x,
+        y,
+        cover_width,
+        COVER_IMAGE_HEIGHT,
+    )
+
+    if not image_drawn:
+        raise RuntimeError(
+            "Não foi possível desenhar a imagem APOD na capa."
+        )
+
+    y = image_y - COVER_IMAGE_GAP
+
+    y = draw_wrapped_paragraph(
+        c,
+        title,
+        x,
+        y,
+        cover_width,
+        styles["cover_headline"],
+    )
+
+    y -= 0.28 * cm
+
+    y = draw_wrapped_paragraph(
+        c,
+        explanation,
+        x,
+        y,
+        full_width,
+        styles["cover_body"],
+    )
+
+    c.setFillColor(MUTED_INK)
+    c.setFont("Times-Italic", 7.5)
+    c.drawString(
+        x,
+        y - 0.16 * cm,
+        f"Crédito: {credit}",
+    )
+
+    return y - 0.45 * cm
+
+
 def story_height(
     story,
     width,
@@ -1780,7 +1915,7 @@ def draw_story_pages(
     Uma matéria só é movida de página quando ela não cabe por inteiro
     no espaço que resta. Não corta texto nem desenha por cima do rodapé.
     """
-    remaining_stories = stories[1:]
+    remaining_stories = stories
 
     if not remaining_stories:
         return first_page_number - 1
@@ -2271,43 +2406,16 @@ def build_pdf(edition):
 
     sidebar_x = MARGIN + cover_width + sidebar_gap
 
-    cover_story = choose_cover_story(
-        stories,
-        image_index,
-    )
-
-    cover_story_id = cover_story.get(
-        "candidate_id",
-        "",
-    )
-
-    internal_stories = [
-        story
-        for story in stories
-        if story.get("candidate_id") != cover_story_id
-    ]
+    apod = get_today_apod(today)
 
     print(
-        "Matéria de capa: "
-        f"{cover_story_id} — "
-        f"{cover_story.get('title', '')}"
+        "Capa NASA APOD: "
+        f"{apod.get('date', '')} — "
+        f"{apod.get('title', '')}"
     )
-
-    if cover_story_id in image_index:
-        print(
-            "Imagem de capa: "
-            f"{image_index[cover_story_id]}"
-        )
-    else:
-        print("Imagem de capa: nenhuma disponível.")
-
-    sidebar_bottom = draw_cover_sidebar(
-        c,
-        agenda_amanha,
-        tasks_do_dia,
-        sidebar_x,
-        content_top,
-        sidebar_width,
+    print(
+        "Imagem de capa: "
+        f"{apod['local_image_path']}"
     )
 
     sidebar_bottom = draw_cover_sidebar(
@@ -2319,15 +2427,23 @@ def build_pdf(edition):
         sidebar_width,
     )
 
-    draw_cover_story(
+    sidebar_bottom = draw_cover_sidebar(
         c,
-        cover_story,
+        agenda_amanha,
+        tasks_do_dia,
+        sidebar_x,
+        content_top,
+        sidebar_width,
+    )
+
+    draw_nasa_cover(
+        c,
+        apod,
         MARGIN,
         content_top,
         cover_width,
         PAGE_WIDTH - 2 * MARGIN,
         styles,
-        image_index,
     )
 
     draw_week_agenda(
@@ -2360,7 +2476,7 @@ def build_pdf(edition):
 
     draw_story_pages(
         c,
-        [cover_story] + internal_stories,
+        stories,
         today,
         styles,
         image_index,
