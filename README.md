@@ -1,160 +1,198 @@
-# 📰 Jornal do Yuri: Diário de Notícias & Planejamento Pessoal
+# Jornal Temporário
 
-[![Python](https://img.shields.io/badge/Python-3.10%2B-blue?logo=python&logoColor=white)](https://www.python.org/)
-[![Local AI](https://img.shields.io/badge/Ollama-Local_LLM-orange?logo=ollama&logoColor=white)](https://ollama.com/)
-[![Google Cloud](https://img.shields.io/badge/Google_APIs-Gmail_|_Calendar_|_Tasks-red?logo=google&logoColor=white)](https://console.cloud.google.com/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+Pipeline em Python para transformar newsletters selecionadas no Gmail em uma edição editorial. O projeto recebe e-mails marcados com a label `news`, extrai notícias de fontes atualmente suportadas, normaliza os dados, seleciona candidatos, usa uma etapa editorial com LLM e gera o jornal final.
 
-Este repositório contém uma aplicação completa e automatizada para a geração de um **jornal impresso diário personalizado (formato A4)**. 
+> **Escopo atual:** a extração é específica para duas newsletters já implementadas. A label `news` controla quais e-mails entram na fila de processamento, mas não torna automaticamente qualquer newsletter compatível. Cada fonte precisa de uma regra de extração própria.
 
-O projeto combina **integrações reais com APIs**, **Inteligência Artificial rodando localmente (LLMs)** e **geração procedural de conteúdo** com diagramação automatizada estilo jornal clássico utilizando a biblioteca **ReportLab**.
+## Visão geral do fluxo
 
-O resultado final é um arquivo PDF elegante, de alta fidelidade visual, contendo suas notícias preferidas resumidas por IA, seus compromissos e tarefas do dia, a imagem astronômica do dia da NASA e um puzzle de Sudoku diário exclusivo para começar bem o dia.
+```text
+Gmail (label: news)
+        │
+        ▼
+extract_newsletters.py
+  ├─ identifica a newsletter
+  ├─ aplica o parser específico da fonte
+  └─ normaliza os itens extraídos
+        │
+        ▼
+build_candidates.py
+  └─ consolida e prepara candidatos editoriais
+        │
+        ▼
+editor_llm.py
+  └─ seleciona, revisa e organiza o conteúdo
+        │
+        ├──────────────────► download_images.py
+        │                         └─ baixa/trata imagens usadas na edição
+        ▼
+gerar.py
+  └─ monta a saída final
 
----
-
-## ✨ Recursos do Jornal
-
-- 📥 **Integração Real com Gmail API:** Extração automática de newsletters digitais (como a *Filipe Deschamps Newsletter* e *The News*) diretamente da caixa de entrada do usuário.
-- 🤖 **Curadoria & Resumos com IA Local (Ollama):** Atua como o "editor-chefe" do jornal. Processa as notícias extraídas utilizando modelos locais (como o `qwen2.5:1.5b`), filtrando as mais importantes, traduzindo, resumindo e gerando manchetes impactantes.
-- 📅 **Integração com Google Calendar & Tasks:** Insere automaticamente na barra lateral do jornal a sua agenda de amanhã, tarefas pendentes de hoje e os próximos grandes compromissos da semana.
-- 🌌 **Imagem Astronômica da NASA (APOD API):** Consome a API pública da NASA para baixar a foto espacial diária e seus metadados, apresentando-a como imagem principal do jornal com sua respectiva legenda técnica traduzida.
-- 🧩 **Sudoku Diário Procedural:** Gera um puzzle de Sudoku exclusivo do dia de forma determinística usando o algoritmo SHA-256 alimentado pela data de hoje, garantindo que o jogo seja novo a cada dia e resolvível sem depender de APIs externas.
-- 🎨 **Diagramação Profissional (ReportLab):** Organização clássica de colunas, fontes tipográficas tradicionais de jornais (`Times-Roman` / `Helvetica`), cálculo dinâmico de redimensionamento de imagens (PIL/Pillow), linhas divisórias milimétricas e excelente fidelidade visual pronta para impressão.
-- 🚀 **Orquestração em Comando Único:** Um script central robusto que unifica todo o pipeline com controle de erros, medição de tempo por etapa e propagação de parâmetros de linha de comando.
-
----
-
-## 🛠️ Arquitetura do Sistema e Pipeline
-
-A geração do jornal ocorre em um pipeline sequencial de 5 etapas, onde cada script desempenha um papel único e as saídas de um servem de entrada para o próximo:
-
-```
-[ Gmail API ] ──> 1. extract_newsletters.py ──> [ newsletter_input.json ]
-                                                             │
-[ JSON formatado ] <── 2. build_candidates.py <──────────────┘
-       │
-       └──> 3. editor_llm.py (Ollama Local LLM) ──> [ stories.json ] ───┐
-                                                                       │
-[ NASA APOD API ] ──> 4. nasa_apod.py ──> [ Imagens & Metadados ] ──────┼─> [ 5. gerar.py ] ──> 📄 jornal_Yuri.pdf
-                                                                       │       ▲
-[ Google APIs & Sudoku Procedural ] ───────────────────────────────────┘       │
-      - Google Agenda (Compromissos) ───────────────────────────────────────────┤
-      - Google Tasks (Tarefas pendentes) ───────────────────────────────────────┘
+rodar_pipeline.py
+  └─ orquestra as etapas do pipeline
 ```
 
-1. **`extract_newsletters.py`:** Acessa a API do Gmail via OAuth 2.0, busca mensagens recentes marcadas com a tag/marcador específica de notícias, faz o parsing do HTML/texto e gera o arquivo temporário `output/newsletter_input.json`.
-2. **`build_candidates.py`:** Limpa os dados brutos e as tags HTML, isola links e imagens das newsletters, estruturando os artigos em `output/candidates.json`.
-3. **`editor_llm.py`:** Envia as notícias candidatas para o Ollama local. O modelo traduz artigos do inglês se necessário, condensa textos longos, escolhe as matérias de destaque de tecnologia/mundo e gera a base `output/stories.json`.
-4. **`nasa_apod.py`:** Faz a chamada HTTP para a API da NASA, escolhe a resolução apropriada da Imagem Astronômica do Dia, realiza o download seguro e salva os metadados textuais explicativos.
-5. **`gerar.py`:** O núcleo de design do projeto. Coleta todas as fontes de dados, consulta as APIs do Google Calendar e do Google Tasks para colher a agenda pessoal, gera e formata o layout físico do jornal A4 com precisão milimétrica, incluindo o passatempo de Sudoku na contracapa, e renderiza o PDF final.
-6. **`rodar_pipeline.py`:** Nosso orquestrador central que executa cada um dos scripts sequencialmente com feedback em tempo real e tratamento de falhas.
+## Como o processo funciona
 
----
+### 1. Seleção dos e-mails no Gmail
 
-## 📂 Estrutura do Projeto
+O Gmail é a porta de entrada do pipeline. A curadoria inicial é manual: marque com a label `news` as edições de newsletter que devem ser consideradas para a próxima execução.
 
+Essa label tem uma responsabilidade simples e importante: ela define **quais mensagens serão buscadas** pelo processo. Ela não identifica a estrutura interna da newsletter, não decide quais links são notícias e não adapta automaticamente HTML de fontes desconhecidas.
+
+Antes de executar o pipeline, confirme que:
+
+- A conta Gmail usada pelo projeto tem acesso às mensagens selecionadas.
+- A label foi escrita exatamente como `news`, respeitando a configuração esperada pelo código.
+- Os e-mails marcados pertencem a uma das newsletters suportadas ou já têm um extrator implementado.
+- As mensagens contêm a versão HTML original; encaminhamentos e cópias podem alterar a estrutura que o parser espera.
+
+### 2. Busca e extração das newsletters
+
+O script `extract_newsletters.py` é o ponto mais específico do projeto. Ele busca os e-mails elegíveis e transforma o conteúdo bruto de cada mensagem em dados estruturados que as etapas posteriores conseguem consumir.
+
+A extração segue, conceitualmente, estas fases:
+
+1. Localizar as mensagens marcadas com `news`.
+2. Ler metadados do e-mail, como remetente, assunto e data.
+3. Obter o corpo HTML da mensagem.
+4. Identificar a fonte da newsletter a partir de características conhecidas, como remetente, domínio, assunto ou estrutura do HTML.
+5. Direcionar a mensagem para o parser correspondente.
+6. Encontrar os blocos que representam notícias, links ou recomendações.
+7. Extrair os campos relevantes — normalmente título, URL, resumo, imagem e informações auxiliares quando disponíveis.
+8. Limpar e normalizar os campos para produzir uma estrutura consistente.
+9. Ignorar elementos que não são conteúdo editorial, como links de descadastro, redes sociais, cabeçalhos, rodapés e chamadas promocionais.
+
+A separação por parser é necessária porque newsletters não têm um formato padronizado. Dois e-mails podem conter cartões com título, descrição e imagem, mas usar tags, classes CSS, links de rastreamento, hierarquia HTML e convenções de texto completamente diferentes.
+
+### 3. Normalização e candidatos
+
+Depois que um parser específico encontra os itens de uma newsletter, o resultado precisa obedecer ao formato comum usado pelo restante do projeto. É essa normalização que permite que `build_candidates.py` trate conteúdos de fontes diferentes de forma uniforme.
+
+O `build_candidates.py` consolida os itens extraídos e prepara os candidatos para a curadoria editorial. Nesta etapa, o foco deixa de ser o HTML original da newsletter e passa a ser o conteúdo já estruturado: títulos, links, resumos e demais atributos disponíveis.
+
+### 4. Edição, imagens e geração
+
+Com os candidatos preparados, `editor_llm.py` executa a etapa editorial assistida por LLM: o conteúdo é avaliado, selecionado e organizado para a edição.
+
+Em paralelo ou nas etapas necessárias da execução, `download_images.py` obtém e processa imagens associadas aos itens que serão publicados. Por fim, `gerar.py` monta a saída final do jornal.
+
+O arquivo `rodar_pipeline.py` concentra a orquestração do fluxo. Use-o como ponto de entrada quando quiser executar a sequência completa, em vez de rodar cada script isoladamente.
+
+## As duas newsletters suportadas
+
+O repositório foi construído em torno de duas newsletters específicas. Cada uma possui regras próprias dentro de `extract_newsletters.py`, pois os respectivos e-mails apresentam formatos distintos.
+
+Consequentemente:
+
+- Marcar um e-mail de uma fonte não suportada com `news` não é suficiente para extraí-lo corretamente.
+- Uma alteração no template HTML de qualquer fonte pode exigir ajuste no parser correspondente.
+- Parsers devem ser mantidos isolados: uma correção para uma newsletter não deve alterar a leitura da outra.
+
+Ao fazer manutenção, prefira identificar a newsletter por um sinal estável — idealmente o remetente ou domínio — e só então aplicar seletores de HTML específicos. Usar apenas um trecho de texto frágil no corpo do e-mail tende a gerar falsos positivos quando o template muda.
+
+## Como adicionar outra newsletter
+
+Para adaptar o projeto a uma nova fonte, implemente um parser adicional em `extract_newsletters.py` e conecte-o à lógica que identifica a newsletter. O objetivo é converter a estrutura particular dessa fonte para o mesmo formato normalizado já consumido pelas etapas seguintes.
+
+### Passo 1: separar uma amostra real
+
+1. Assine ou receba ao menos uma edição real da nova newsletter.
+2. Marque a mensagem com a label `news` no Gmail.
+3. Preserve uma amostra do e-mail para testes, de preferência com várias notícias e imagens.
+4. Verifique se a mensagem recebida é a versão final da fonte, não um e-mail encaminhado ou uma cópia que possa ter o HTML modificado.
+
+Uma única amostra é útil para começar, mas valide posteriormente com edições de dias diferentes. Templates de newsletter podem variar por edição, seção ou campanha.
+
+### Passo 2: estudar a assinatura da fonte
+
+Defina como o código reconhecerá que determinada mensagem pertence à nova newsletter. Em ordem de preferência, procure sinais estáveis como:
+
+- Endereço ou domínio do remetente.
+- Cabeçalhos e identificadores previsíveis da mensagem.
+- Prefixo de assunto característico.
+- Estrutura HTML exclusiva, como um container, atributo ou classe recorrente.
+
+Evite identificar a fonte usando o título de uma notícia, um nome de autor ou outro texto que muda a cada edição.
+
+### Passo 3: inspecionar o HTML
+
+Analise o corpo HTML e encontre o padrão que se repete para cada item editorial. Para cada bloco de notícia, descubra onde estão:
+
+- O título.
+- A URL de destino.
+- O resumo ou texto de apoio.
+- A URL da imagem, se existir.
+- Elementos que indicam se o bloco é conteúdo editorial ou apenas navegação/publicidade.
+
+Também procure links que não devem virar candidatos: `unsubscribe`, preferências de e-mail, redes sociais, versão web, política de privacidade, imagens de tracking e chamadas comerciais.
+
+### Passo 4: criar um parser dedicado
+
+No `extract_newsletters.py`, crie uma função dedicada à nova fonte. Mantenha a responsabilidade da função limitada a interpretar aquela newsletter: ela deve receber os dados ou HTML da mensagem, localizar os blocos corretos, extrair os campos necessários e devolver itens normalizados.
+
+Use nomes explícitos, por exemplo:
+
+```python
+def extract_minha_newsletter(html: str) -> list[dict]:
+    """Extrai itens editoriais da newsletter Minha Newsletter."""
+    ...
 ```
-jornal-pessoal/
-├── .gitignore               # Configurações de arquivos ignorados pelo Git (tokens, PDFs, outputs)
-├── requirements.txt         # Dependências do ecossistema Python
-├── rodar_pipeline.py        # Orquestrador do pipeline de comando único
-├── extract_newsletters.py   # Etapa 1: Conexão e extração do Gmail
-├── build_candidates.py      # Etapa 2: Parsing e estruturação das newsletters
-├── editor_llm.py            # Etapa 3: Inteligência Artificial (Ollama)
-├── nasa_apod.py             # Etapa 4: Download da imagem espacial diária da NASA
-├── gerar.py                 # Etapa 5: Geração da agenda, Sudoku e renderização do PDF
-├── download_images.py       # Módulo utilitário opcional de download de mídias adicionais
-└── output/                  # Pasta gerada automaticamente (notícias, imagens, JSONs e PDFs)
-```
 
----
+A função deve retornar a mesma estrutura que os demais parsers já devolvem. Antes de escrever uma estrutura nova, compare os retornos das duas implementações existentes e siga o mesmo contrato de dados. Isso evita quebrar `build_candidates.py`, `editor_llm.py` ou `gerar.py`.
 
-## 🚀 Como Executar o Seu Próprio Jornal
+### Passo 5: adicionar o roteamento
 
-Siga os passos abaixo para configurar o ambiente e rodar o pipeline na sua máquina local:
+Depois de implementar o parser, inclua uma condição clara na parte do código que decide qual extrator será usado. A regra deve:
 
-### 1. Pré-requisitos
-- **Python 3.10 ou superior** instalado.
-- **Ollama** instalado ([ollama.com](https://ollama.com/)).
-  - Baixe o modelo padrão do projeto rodando no terminal:
-    ```bash
-    ollama run qwen2.5:1.5b
-    ```
-- **Conta Google Cloud Developer Platform:**
-  - Crie um projeto no console do Google Cloud.
-  - Ative as APIs: **Gmail API**, **Google Calendar API**, e **Google Tasks API**.
-  - Configure a tela de consentimento do OAuth (OAuth Consent Screen) em modo de Teste e adicione o seu e-mail como usuário de teste.
-  - Crie uma credencial do tipo **ID do cliente OAuth 2.0** (aplicativo de desktop).
-  - Faça o download do arquivo JSON das credenciais e salve-o na raiz do projeto com o nome **`credentials.json`**.
+1. Detectar a nova fonte pelo sinal estável escolhido.
+2. Chamar somente o parser daquela fonte.
+3. Preservar o comportamento das duas newsletters existentes.
+4. Registrar ou reportar quando uma mensagem marcada com `news` não corresponder a nenhuma fonte conhecida.
 
-### 2. Configurando o Ambiente Virtual
-Clone este repositório para a sua máquina:
-```bash
-git clone https://github.com/seu-usuario/jornal-pessoal.git
-cd jornal-pessoal
-```
+Trate newsletters desconhecidas de forma explícita. É preferível ignorar uma fonte sem parser e registrar o motivo a tentar usar um parser errado, que pode gerar títulos, links ou imagens incorretos silenciosamente.
 
-Crie e ative um ambiente virtual:
-```bash
-# No Linux/macOS:
-python3 -m venv .venv
-source .venv/bin/bin/activate
+### Passo 6: normalizar e validar dados
 
-# No Windows:
-python -m venv .venv
-.venv\Scripts\activate
-```
+Confira que cada item extraído segue o formato esperado pelo restante do pipeline. Para todos os campos, trate ausências e inconsistências de forma previsível:
 
-Instale as dependências:
-```bash
-pip install -r requirements.txt
-```
+- Ignore blocos sem link útil ou sem título editorial.
+- Normalize espaços, entidades HTML e quebras de linha.
+- Resolva ou descarte URLs de rastreamento quando isso for necessário para preservar o link final.
+- Verifique se URLs relativas precisam ser convertidas em URLs absolutas.
+- Não use uma imagem decorativa como imagem da notícia.
+- Evite duplicar a mesma notícia quando o e-mail contém o mesmo link em mais de um lugar.
 
-### 3. Executando o Pipeline Completo
+### Passo 7: testar em camadas
 
-O projeto vem com o **`rodar_pipeline.py`**, o orquestrador unificado que simplifica a execução sequencial:
+Teste primeiro a extração isoladamente e só depois o pipeline completo:
 
-```bash
-python3 rodar_pipeline.py
-```
+1. Rode o extrator com uma mensagem conhecida da nova fonte.
+2. Compare os itens retornados com o e-mail original.
+3. Verifique títulos, URLs, resumos e imagens.
+4. Confirme que rodapés, anúncios e links de descadastro foram excluídos.
+5. Execute `build_candidates.py` e confira se os dados são aceitos.
+6. Execute a curadoria editorial e a geração final.
+7. Repita o teste com outras edições da mesma newsletter.
 
-*Nota: Na primeira execução, o script abrirá automaticamente uma janela no seu navegador solicitando autorização da sua conta Google para ler os emails com marcador "News", calendário e tarefas. Após aceitar, um arquivo `token.json` será guardado localmente de forma segura para logins futuros automáticos.*
+Se a nova fonte não retornar itens, investigue primeiro a identificação do remetente e os seletores HTML. Se retornar itens errados, verifique se o seletor está abrangendo links de navegação ou blocos promocionais.
 
-#### Opções de Linha de Comando do Orquestrador:
-Você pode personalizar seu jornal através de parâmetros:
+## Checklist de adaptação
 
-- **Mudar a Edição (Manhã vs Noite):**
-  ```bash
-  python3 rodar_pipeline.py --edition noite
-  ```
-- **Utilizar um Modelo de LLM diferente no Ollama:**
-  ```bash
-  python3 rodar_pipeline.py --model llama3:8b
-  ```
+Antes de considerar uma newsletter integrada, confirme:
 
----
+- [ ] A mensagem pode ser selecionada com a label `news` no Gmail.
+- [ ] A lógica reconhece a fonte por um identificador estável.
+- [ ] Existe um parser isolado para a fonte em `extract_newsletters.py`.
+- [ ] O parser captura apenas blocos editoriais.
+- [ ] Título, URL, resumo e imagem foram extraídos ou tratados quando ausentes.
+- [ ] A saída segue exatamente o contrato usado pelos parsers existentes.
+- [ ] O fluxo completo funciona sem regressão nas duas newsletters já suportadas.
+- [ ] Foram testadas múltiplas edições da nova fonte.
 
-## 🎨 Layout e Estética Técnica
+## Execução e manutenção
 
-O arquivo gerado é otimizado para **folhas A4** e desenhado com atenção à simetria visual:
-- **Capa:** Logotipo tradicional centralizado, dados de cabeçalho (data, dia da semana, número da edição), manchete principal de impacto, imagem espacial da NASA com legenda, e duas notícias curadas ao lado.
-- **Barra Lateral Integrada:** Mostra os compromissos de amanhã do Google Agenda de forma sequencial com horários e uma seção de checklist com suas tarefas ativas coletadas do Google Tasks.
-- **Contracapa / Passatempos:** Uma página dedicada ao entretenimento matinal clássico, exibindo o **Sudoku do Dia** centralizado em escala perfeita de cinza com grade elegante de alta visibilidade pronto para caneta/lápis.
+Para executar o fluxo completo, use `rodar_pipeline.py`, respeitando as dependências definidas em `requirements.txt` e as credenciais/configurações já exigidas pelo projeto. Para depurar uma etapa, execute o script correspondente de forma isolada e inspecione a saída antes de avançar para a etapa seguinte.
 
----
-
-## 🛡️ Segurança
-
-- O arquivo **`credentials.json`** (baixado do Google Cloud) e o token gerado **`token.json`** são estritamente pessoais e estão configurados no `.gitignore` para que **nunca** sejam expostos ou commitados no GitHub.
-- As chamadas de IA rodam **100% de forma local** via Ollama, garantindo a privacidade absoluta de suas newsletters e rotina diária sem tráfego de dados para servidores externos corporativos.
-
----
-
-## 📄 Licença
-
-Este projeto está sob a licença MIT. Veja o arquivo [LICENSE](LICENSE) para mais detalhes.
-
----
-
-*Desenvolvido com carinho para otimizar sua rotina e seu tempo de tela, trazendo o prazer do jornal impresso de volta para as manhãs modernas!*
+Quando uma fonte alterar seu template, comece a investigação em `extract_newsletters.py`: compare o HTML da edição nova com uma edição que funcionava, identifique o seletor ou atributo que mudou e ajuste exclusivamente o parser daquela fonte. Depois, rode a checklist de testes para garantir que a correção não afetou as demais integrações.
